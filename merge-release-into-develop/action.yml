@@ -1,0 +1,46 @@
+name: Merge release into develop
+description: |
+  GitHub Actions which merges the release branch into the develop branch
+
+inputs:
+  release-branch:
+    description: The release branch name
+    type: string
+    required: true
+  develop-branch:
+    description: The develop branch name
+    type: string
+    required: false
+    default: develop
+  pr-title-template:
+    description: The template for the title of the pull request
+    type: string
+    required: false
+    default: "Merge branch {{RELEASE_BRANCH}} into {{DEVELOP_BRANCH}}"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set pull request title
+      if: |
+        github.head_ref == inputs.release-branch &&
+        github.base_ref == inputs.develop-branch &&
+        inputs.pr-title-template != ''
+      env:
+        RELEASE_BRANCH: ${{ inputs.release-branch }}
+        DEVELOP_BRANCH: ${{ inputs.develop-branch }}
+        PR_TITLE_TEMPLATE: ${{ inputs.pr-title-template }}
+      shell: bash
+      run: |
+        PR_TITLE="${PR_TITLE_TEMPLATE//"{{RELEASE_BRANCH}}"/${RELEASE_BRANCH}}"
+        PR_TITLE="${PR_TITLE//"{{DEVELOP_BRANCH}}"/${DEVELOP_BRANCH}}"
+        echo "PR_TITLE=${PR_TITLE}" >> "$GITHUB_ENV"
+
+    - name: Merge
+      if: |
+        github.head_ref == inputs.release-branch &&
+        github.base_ref == inputs.develop-branch
+      env:
+        PR_NUMBER: ${{ github.event.number }}
+      shell: bash
+      run: gh pr merge ${PR_NUMBER} --merge --delete-branch --auto --subject "${PR_TITLE}"

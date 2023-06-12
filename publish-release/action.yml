@@ -1,0 +1,235 @@
+name: Publish release
+description: GitHub Actions which publish new release
+
+inputs:
+  release-type:
+    description: |
+      Type of the release PR: release|hotfix
+    type: string
+    required: false
+    default: release
+  release-branch-prefix:
+    description: The prefix of the release branch name
+    type: string
+    required: false
+    default: 'release/'
+  main-branch:
+    description: The main branch name
+    type: string
+    required: false
+    default: main
+  pre-release-tags:
+    description: The regex pattern of pre-release tags to apply to pre-release pull requests
+    type: string
+    required: false
+    default: "alpha|beta|rc"
+  version-tag-prefix:
+    description: The prefix of the version tag
+    type: string
+    required: false
+    default: "v"
+  release-assets:
+    description: Path to release assets
+    type: string
+    required: false
+    default: ""
+  notes-file:
+    description: The notes file which will be use for release notes
+    type: string
+    required: false
+    default: ""
+  draft:
+    description: Create a draft release
+    type: boolean
+    required: false
+    default: false
+  create-merge-develop-pr:
+    description: Create a pull request to merge the release branch into the develop branch
+    type: boolean
+    required: false
+    default: true
+  develop-branch:
+    description: The develop branch name
+    type: string
+    required: false
+    default: develop
+  pr-title-template:
+    description: The template for the title of the pull request
+    type: string
+    required: false
+    default: 'Merge branch {{RELEASE_BRANCH}} into {{DEVELOP_BRANCH}}'
+  pr-body-template:
+    description: The template for the body of the pull request
+    type: string
+    required: false
+    default: |
+      This PR merges the branch `{{RELEASE_BRANCH}}` back into the branch `{{DEVELOP_BRANCH}}`.
+
+      This ensures that the updates on the branch `{{RELEASE_BRANCH}}`, i.e. CHANGELOG and manifest updates, are also present on the branch `{{DEVELOP_BRANCH}}`.
+  pr-labels:
+    description: The labels of the pull request
+    type: string
+    required: false
+    default: 'automated-pr'
+  token:
+    description: GitHub token
+    type: string
+    required: false
+    default: ${{ github.token }}
+  skip-checkout:
+    description: Skip the checkout step
+    type: boolean
+    required: false
+    default: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.skip-checkout == 'false'
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.head_ref }}
+        token: ${{ inputs.token || github.token }}
+        # needed by "gh pr create"
+        fetch-depth: 0
+
+    - name: Extract version from ${{ inputs.release-type }} branch
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch
+      env:
+        MAIN_BRANCH: ${{ inputs.main-branch }}
+        DEVELOP_BRANCH: ${{ inputs.develop-branch }}
+        RELEASE_BRANCH: ${{ github.head_ref }}
+        RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
+        VERSION_TAG_PREFIX: ${{ inputs.version-tag-prefix }}
+      shell: bash
+      run: |
+        RELEASE_VERSION=${RELEASE_BRANCH#${RELEASE_BRANCH_PREFIX}}
+        RELEASE_VERSION=${RELEASE_VERSION#${VERSION_TAG_PREFIX}}
+        {
+          echo "MAIN_BRANCH=${MAIN_BRANCH}"
+          echo "DEVELOP_BRANCH=${DEVELOP_BRANCH}"
+          echo "RELEASE_VERSION=${RELEASE_VERSION}"
+        } >> "$GITHUB_ENV"
+
+    - name: Set release assets
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.release-assets != ''
+      shell: bash
+      run: echo "RELEASE_ASSETS_ARG=${RELEASE_ASSETS}" >> "$GITHUB_ENV"
+
+    - name: Set as draft release
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.draft == 'true'
+      shell: bash
+      run: echo "DRAFT_ARG=--draft" >> "$GITHUB_ENV"
+
+    - name: Set as pre-release
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.pre-release-tags != ''
+      env:
+        PRE_RELEASE_TAGS: ${{ inputs.pre-release-tags }}
+      shell: bash
+      run: |
+        if [[ ${RELEASE_VERSION} =~ ${PRE_RELEASE_TAGS} ]]; then
+          echo "PRE_RELEASE_ARG=--prerelease" >> "$GITHUB_ENV"
+        fi
+
+    - name: Set release notes argument
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.notes-file == ''
+      shell: bash
+      run: |
+        echo "NOTES_FILE_ARG=--generate-notes" >> "$GITHUB_ENV"
+
+    - name: Set release notes argument
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.notes-file != ''
+      env:
+        NOTES_FILE: ${{ inputs.notes-file }}
+      shell: bash
+      run: |
+        echo "NOTES_FILE_ARG=--notes-file ${NOTES_FILE}" >> "$GITHUB_ENV"
+
+    - name: Create release
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch
+      env:
+        RELEASE_TAG: "${{ env.VERSION_TAG_PREFIX }}${{ env.RELEASE_VERSION }}"
+        RELEASE_ASSETS: ${{ inputs.release-assets }}
+        RELEASE_TARGET: ${{ github.event.pull_request.merge_commit_sha }}
+      shell: bash
+      run: |
+        gh release create \
+          ${RELEASE_TAG} \
+          ${RELEASE_ASSETS} \
+          --title "${RELEASE_TAG}" \
+          --target ${RELEASE_TARGET} \
+          ${NOTES_FILE_ARG} \
+          ${DRAFT_ARG} \
+          ${PRE_RELEASE_ARG}
+
+    - name: Set pull request title
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.create-merge-develop-pr == 'true' &&
+        inputs.pr-title-template != ''
+      env:
+        PR_TITLE_TEMPLATE: ${{ inputs.pr-title-template }}
+      shell: bash
+      run: |
+        PR_TITLE="${PR_TITLE_TEMPLATE//"{{RELEASE_BRANCH}}"/${RELEASE_BRANCH}}"
+        PR_TITLE="${PR_TITLE//"{{DEVELOP_BRANCH}}"/${DEVELOP_BRANCH}}"
+        echo "PR_TITLE=${PR_TITLE}" >> "$GITHUB_ENV"
+
+    - name: Set pull request body
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.create-merge-develop-pr == 'true' &&
+        inputs.pr-body-template != ''
+      env:
+        PR_BODY_TEMPLATE: ${{ inputs.pr-body-template }}
+      shell: bash
+      run: |
+        PR_BODY="${PR_BODY_TEMPLATE//"{{RELEASE_BRANCH}}"/${RELEASE_BRANCH}}"
+        PR_BODY="${PR_BODY//"{{DEVELOP_BRANCH}}"/${DEVELOP_BRANCH}}"
+        echo "PR_BODY=${PR_BODY}" >> "$GITHUB_ENV"
+
+    - name: Create pull request ${{ env.RELEASE_BRANCH }} -> ${{ env.DEVELOP_BRANCH }}
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.create-merge-develop-pr == 'true'
+      env:
+        PR_LABELS: ${{ inputs.pr-labels }}
+      shell: bash
+      run: |
+        for LABEL in $(echo $PR_LABELS | sed "s/,/ /g"); do
+          gh label create $LABEL --force;
+        done
+
+        gh pr create \
+          --base "${DEVELOP_BRANCH}" \
+          --head "${RELEASE_BRANCH}" \
+          --title "${PR_TITLE}" \
+          --body "${PR_BODY}" \
+          --label "${PR_LABELS}" \
+          --fill

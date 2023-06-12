@@ -1,0 +1,185 @@
+name: Create release PR
+description: GitHub Actions which create pull request for releasing new software version
+
+inputs:
+  release-type:
+    description: |
+      Type of the release PR: release|hotfix
+    type: string
+    required: false
+    default: release
+  release-branch-prefix:
+    description: The prefix of the release branch name
+    type: string
+    required: false
+    default: 'release/'
+  main-branch:
+    description: The main branch name
+    type: string
+    required: false
+    default: main
+  version-tag-prefix:
+    description: The prefix of the version tag
+    type: string
+    required: false
+    default: 'v'
+  pre-release-tags:
+    description: The regex pattern of pre-release tags to apply to pre-release pull requests
+    type: string
+    required: false
+    default: 'alpha|beta|rc'
+  draft:
+    description: Create a draft pull request
+    type: boolean
+    required: false
+    default: false
+  pr-title-template:
+    description: The template for the title of the pull request
+    type: string
+    required: false
+    default: '{{RELEASE_TYPE}} {{VERSION_TAG_PREFIX}}{{RELEASE_VERSION}}'
+  pr-body-template:
+    description: The template for the body of the pull request
+    type: string
+    required: false
+    default: |
+      This PR was created to prepare for releasing {{RELEASE_TYPE}} {{VERSION_TAG_PREFIX}}{{RELEASE_VERSION}}.
+
+      Merging this PR will create the GitHub release {{RELEASE_TYPE}} {{VERSION_TAG_PREFIX}}{{RELEASE_VERSION}}.
+  pr-labels-template:
+    description: The template for the labels of the pull request
+    type: string
+    required: false
+    default: 'automated-pr,{{RELEASE_TYPE}}-pr'
+  token:
+    description: GitHub token
+    type: string
+    required: false
+    default: ${{ github.token }}
+  skip-checkout:
+    description: Skip the checkout step
+    type: boolean
+    required: false
+    default: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.skip-checkout == 'false'
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.head_ref }}
+        token: ${{ inputs.token || github.token }}
+        # needed by "gh pr create"
+        fetch-depth: 0
+
+    - name: Set environment variables for publishing ${{ inputs.release-type }}
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch
+      env:
+        MAIN_BRANCH: ${{ inputs.main-branch }}
+        RELEASE_BRANCH: ${{ github.head_ref }}
+        RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
+        RELEASE_TYPE: ${{ inputs.release-type }}
+        VERSION_TAG_PREFIX: ${{ inputs.version-tag-prefix }}
+      shell: bash
+      run: |
+        RELEASE_VERSION=${RELEASE_BRANCH#${RELEASE_BRANCH_PREFIX}}
+        RELEASE_VERSION=${RELEASE_VERSION#${VERSION_TAG_PREFIX}}
+        {
+          echo "MAIN_BRANCH=${MAIN_BRANCH}"
+          echo "RELEASE_BRANCH=${RELEASE_BRANCH}"
+          echo "RELEASE_VERSION=${RELEASE_VERSION}"
+          echo "RELEASE_TYPE=${RELEASE_TYPE}"
+          echo "VERSION_TAG_PREFIX=${VERSION_TAG_PREFIX}"
+        } >> "$GITHUB_ENV"
+
+    - name: Set as draft pull request
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.draft == 'true'
+      shell: bash
+      run: echo "DRAFT_ARG=--draft" >> "$GITHUB_ENV"
+
+    - name: Check whether pre-release version
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.pre-release-tags != ''
+      env:
+        PRE_RELEASE_TAGS: ${{ inputs.pre-release-tags }}
+      shell: bash
+      run: |
+        if [[ ${RELEASE_VERSION} =~ ${PRE_RELEASE_TAGS} ]]; then
+          echo "PRE_RELEASE=true" >> "$GITHUB_ENV"
+        fi
+
+    - name: Set pull request title
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.pr-title-template != ''
+      env:
+        PR_TITLE_TEMPLATE: ${{ inputs.pr-title-template }}
+      shell: bash
+      run: |
+        PR_TITLE="${PR_TITLE_TEMPLATE//"{{RELEASE_TYPE}}"/${RELEASE_TYPE}}"
+        PR_TITLE="${PR_TITLE//"{{VERSION_TAG_PREFIX}}"/${VERSION_TAG_PREFIX}}"
+        PR_TITLE="${PR_TITLE//"{{RELEASE_VERSION}}"/${RELEASE_VERSION}}"
+        PR_TITLE="${PR_TITLE^}"
+        echo "PR_TITLE=${PR_TITLE}" >> "$GITHUB_ENV"
+
+    - name: Set pull request body
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch &&
+        inputs.pr-body-template != ''
+      env:
+        PR_BODY_TEMPLATE: ${{ inputs.pr-body-template }}
+      shell: bash
+      run: |
+        PR_BODY="${PR_BODY_TEMPLATE//"{{RELEASE_TYPE}}"/${RELEASE_TYPE}}"
+        PR_BODY="${PR_BODY//"{{VERSION_TAG_PREFIX}}"/${VERSION_TAG_PREFIX}}"
+        PR_BODY="${PR_BODY//"{{RELEASE_VERSION}}"/${RELEASE_VERSION}}"
+        echo "PR_BODY=${PR_BODY}" >> "$GITHUB_ENV"
+
+    - name: Create pull request
+      if: |
+        startsWith(github.head_ref, inputs.release-branch-prefix) &&
+        github.base_ref == inputs.main-branch
+      env:
+        PR_LABELS_TEMPLATE: ${{ inputs.pr-labels-template }}
+      shell: bash
+      run: |
+        PR_LABELS="${PR_LABELS_TEMPLATE//"{{RELEASE_TYPE}}"/${RELEASE_TYPE}}"
+        PR_LABELS="${PR_LABELS//"{{VERSION_TAG_PREFIX}}"/${VERSION_TAG_PREFIX}}"
+        PR_LABELS="${PR_LABELS//"{{RELEASE_VERSION}}"/${RELEASE_VERSION}}"
+
+        if [[ ${PRE_RELEASE} == "true" ]]; then
+          PR_LABELS="$PR_LABELS,pre-release"
+        fi
+
+        for LABEL in $(echo $PR_LABELS | sed "s/,/ /g"); do
+          gh label create $LABEL --force;
+        done
+
+        PR_ID=$(gh pr list --state open --search "base:${MAIN_BRANCH} head:${RELEASE_BRANCH}" | head -1 | cut -f1)
+
+        if [[ ! -z "${PR_ID}" ]]; then
+          echo "PR was created with ID ${PR_ID}. Ignored!"
+        else
+          gh pr create \
+            ${DRAFT_ARG} \
+            --base "${MAIN_BRANCH}" \
+            --head "${RELEASE_BRANCH}" \
+            --title "${PR_TITLE}" \
+            --body "${PR_BODY}" \
+            --label "${PR_LABELS}" \
+            --fill
+        fi
