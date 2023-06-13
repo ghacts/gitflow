@@ -7,6 +7,9 @@ on:
     branches:
       - main
 
+env:
+  VERSION_TAG_PREFIX: "v"
+
 jobs:
   release:
     name: Publish release
@@ -48,4 +51,4 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           release-type: ${{ env.RELEASE_TYPE }}
           release-branch-prefix: '${{ env.RELEASE_TYPE }}/'
-          notes-file: './changes/${{ env.RELEASE_VERSION }}.md'
+          notes-file: './changes/${{ env.VERSION_TAG_PREFIX }}${{ env.RELEASE_VERSION }}.md'
