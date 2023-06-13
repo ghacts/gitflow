@@ -12,7 +12,7 @@ inputs:
     description: The prefix of the release branch name
     type: string
     required: false
-    default: 'release/'
+    default: "release/"
   main-branch:
     description: The main branch name
     type: string
@@ -22,12 +22,12 @@ inputs:
     description: The prefix of the version tag
     type: string
     required: false
-    default: 'v'
+    default: "v"
   pre-release-tags:
-    description: The regex pattern of pre-release tags to apply to pre-release pull requests
+    description: The regex pattern of pre-release tags to apply to pre-release pull request
     type: string
     required: false
-    default: 'alpha|beta|rc'
+    default: "alpha|beta|rc"
   draft:
     description: Create a draft pull request
     type: boolean
@@ -37,7 +37,7 @@ inputs:
     description: The template for the title of the pull request
     type: string
     required: false
-    default: '{{RELEASE_TYPE}} {{VERSION_TAG_PREFIX}}{{RELEASE_VERSION}}'
+    default: "{{RELEASE_TYPE}} {{VERSION_TAG_PREFIX}}{{RELEASE_VERSION}}"
   pr-body-template:
     description: The template for the body of the pull request
     type: string
@@ -50,40 +50,29 @@ inputs:
     description: The template for the labels of the pull request
     type: string
     required: false
-    default: 'automated-pr,{{RELEASE_TYPE}}-pr'
+    default: "automated-pr,{{RELEASE_TYPE}}-pr"
   token:
     description: GitHub token
     type: string
     required: false
     default: ${{ github.token }}
-  skip-checkout:
-    description: Skip the checkout step
-    type: boolean
-    required: false
-    default: false
 
 runs:
   using: "composite"
   steps:
-    - name: Checkout
-      if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch &&
-        inputs.skip-checkout == 'false'
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ github.head_ref }}
-        token: ${{ inputs.token || github.token }}
-        # needed by "gh pr create"
-        fetch-depth: 0
+    - name: Set GitHub token
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token || github.token }}
+      run: |
+        echo "GH_TOKEN=${GH_TOKEN}" >> $GITHUB_ENV
 
     - name: Set environment variables for publishing ${{ inputs.release-type }}
       if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch
+        startsWith(github.ref_name, inputs.release-branch-prefix)
       env:
         MAIN_BRANCH: ${{ inputs.main-branch }}
-        RELEASE_BRANCH: ${{ github.head_ref }}
+        RELEASE_BRANCH: ${{ github.ref_name }}
         RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
         RELEASE_TYPE: ${{ inputs.release-type }}
         VERSION_TAG_PREFIX: ${{ inputs.version-tag-prefix }}
@@ -101,16 +90,14 @@ runs:
 
     - name: Set as draft pull request
       if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch &&
+        startsWith(github.ref_name, inputs.release-branch-prefix) &&
         inputs.draft == 'true'
       shell: bash
       run: echo "DRAFT_ARG=--draft" >> "$GITHUB_ENV"
 
     - name: Check whether pre-release version
       if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch &&
+        startsWith(github.ref_name, inputs.release-branch-prefix) &&
         inputs.pre-release-tags != ''
       env:
         PRE_RELEASE_TAGS: ${{ inputs.pre-release-tags }}
@@ -122,8 +109,7 @@ runs:
 
     - name: Set pull request title
       if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch &&
+        startsWith(github.ref_name, inputs.release-branch-prefix) &&
         inputs.pr-title-template != ''
       env:
         PR_TITLE_TEMPLATE: ${{ inputs.pr-title-template }}
@@ -137,22 +123,24 @@ runs:
 
     - name: Set pull request body
       if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch &&
+        startsWith(github.ref_name, inputs.release-branch-prefix) &&
         inputs.pr-body-template != ''
       env:
         PR_BODY_TEMPLATE: ${{ inputs.pr-body-template }}
       shell: bash
       run: |
-        PR_BODY="${PR_BODY_TEMPLATE//"{{RELEASE_TYPE}}"/${RELEASE_TYPE}}"
-        PR_BODY="${PR_BODY//"{{VERSION_TAG_PREFIX}}"/${VERSION_TAG_PREFIX}}"
-        PR_BODY="${PR_BODY//"{{RELEASE_VERSION}}"/${RELEASE_VERSION}}"
-        echo "PR_BODY=${PR_BODY}" >> "$GITHUB_ENV"
+        PR_BODY=$(echo "${PR_BODY_TEMPLATE}" | sed "s/{{RELEASE_TYPE}}/${RELEASE_TYPE}/g")
+        PR_BODY=$(echo "${PR_BODY}" | sed "s/{{VERSION_TAG_PREFIX}}/${VERSION_TAG_PREFIX}/g")
+        PR_BODY=$(echo "${PR_BODY}" | sed "s/{{RELEASE_VERSION}}/${RELEASE_VERSION}/g")
+        {
+          echo "PR_BODY<<EOF"
+          echo "${PR_BODY}"
+          echo "EOF"
+        } >> "$GITHUB_ENV"
 
     - name: Create pull request
       if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch
+        startsWith(github.ref_name, inputs.release-branch-prefix)
       env:
         PR_LABELS_TEMPLATE: ${{ inputs.pr-labels-template }}
       shell: bash

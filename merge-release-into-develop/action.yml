@@ -17,10 +17,22 @@ inputs:
     type: string
     required: false
     default: "Merge branch {{RELEASE_BRANCH}} into {{DEVELOP_BRANCH}}"
+  token:
+    description: GitHub token
+    type: string
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: "composite"
   steps:
+    - name: Set GitHub token
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token || github.token }}
+      run: |
+        echo "GH_TOKEN=${GH_TOKEN}" >> $GITHUB_ENV
+
     - name: Set pull request title
       if: |
         github.head_ref == inputs.release-branch &&

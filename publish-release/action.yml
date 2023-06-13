@@ -76,26 +76,16 @@ inputs:
     type: string
     required: false
     default: ${{ github.token }}
-  skip-checkout:
-    description: Skip the checkout step
-    type: boolean
-    required: false
-    default: false
 
 runs:
   using: "composite"
   steps:
-    - name: Checkout
-      if: |
-        startsWith(github.head_ref, inputs.release-branch-prefix) &&
-        github.base_ref == inputs.main-branch &&
-        inputs.skip-checkout == 'false'
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ github.head_ref }}
-        token: ${{ inputs.token || github.token }}
-        # needed by "gh pr create"
-        fetch-depth: 0
+    - name: Set GitHub token
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token || github.token }}
+      run: |
+        echo "GH_TOKEN=${GH_TOKEN}" >> $GITHUB_ENV
 
     - name: Extract version from ${{ inputs.release-type }} branch
       if: |
@@ -209,9 +199,13 @@ runs:
         PR_BODY_TEMPLATE: ${{ inputs.pr-body-template }}
       shell: bash
       run: |
-        PR_BODY="${PR_BODY_TEMPLATE//"{{RELEASE_BRANCH}}"/${RELEASE_BRANCH}}"
-        PR_BODY="${PR_BODY//"{{DEVELOP_BRANCH}}"/${DEVELOP_BRANCH}}"
-        echo "PR_BODY=${PR_BODY}" >> "$GITHUB_ENV"
+        PR_BODY=$(echo "${PR_BODY_TEMPLATE}" | sed "s/{{RELEASE_BRANCH}}/${RELEASE_BRANCH}/g")
+        PR_BODY=$(echo "${PR_BODY}" | sed "s/{{DEVELOP_BRANCH}}/${DEVELOP_BRANCH}/g")
+        {
+          echo "PR_BODY<<EOF"
+          echo "${PR_BODY}"
+          echo "EOF"
+        } >> "$GITHUB_ENV"
 
     - name: Create pull request ${{ env.RELEASE_BRANCH }} -> ${{ env.DEVELOP_BRANCH }}
       if: |
