@@ -104,6 +104,7 @@ runs:
         {
           echo "MAIN_BRANCH=${MAIN_BRANCH}"
           echo "DEVELOP_BRANCH=${DEVELOP_BRANCH}"
+          echo "RELEASE_BRANCH=${RELEASE_BRANCH}"
           echo "RELEASE_VERSION=${RELEASE_VERSION}"
         } >> "$GITHUB_ENV"
 
