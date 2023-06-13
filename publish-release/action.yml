@@ -200,8 +200,8 @@ runs:
         PR_BODY_TEMPLATE: ${{ inputs.pr-body-template }}
       shell: bash
       run: |
-        PR_BODY=$(echo "${PR_BODY_TEMPLATE}" | sed "s/{{RELEASE_BRANCH}}/${RELEASE_BRANCH}/g")
-        PR_BODY=$(echo "${PR_BODY}" | sed "s/{{DEVELOP_BRANCH}}/${DEVELOP_BRANCH}/g")
+        PR_BODY=$(echo "${PR_BODY_TEMPLATE}" | sed "s|{{RELEASE_BRANCH}}|${RELEASE_BRANCH}|g")
+        PR_BODY=$(echo "${PR_BODY}" | sed "s|{{DEVELOP_BRANCH}}|${DEVELOP_BRANCH}|g")
         {
           echo "PR_BODY<<EOF"
           echo "${PR_BODY}"

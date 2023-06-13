@@ -129,9 +129,9 @@ runs:
         PR_BODY_TEMPLATE: ${{ inputs.pr-body-template }}
       shell: bash
       run: |
-        PR_BODY=$(echo "${PR_BODY_TEMPLATE}" | sed "s/{{RELEASE_TYPE}}/${RELEASE_TYPE}/g")
-        PR_BODY=$(echo "${PR_BODY}" | sed "s/{{VERSION_TAG_PREFIX}}/${VERSION_TAG_PREFIX}/g")
-        PR_BODY=$(echo "${PR_BODY}" | sed "s/{{RELEASE_VERSION}}/${RELEASE_VERSION}/g")
+        PR_BODY=$(echo "${PR_BODY_TEMPLATE}" | sed "s|{{RELEASE_TYPE}}|${RELEASE_TYPE}|g")
+        PR_BODY=$(echo "${PR_BODY}" | sed "s|{{VERSION_TAG_PREFIX}}|${VERSION_TAG_PREFIX}|g")
+        PR_BODY=$(echo "${PR_BODY}" | sed "s|{{RELEASE_VERSION}}|${RELEASE_VERSION}|g")
         {
           echo "PR_BODY<<EOF"
           echo "${PR_BODY}"
