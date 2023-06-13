@@ -1,0 +1,27 @@
+name: Test merge release into develop
+
+on:
+  pull_request:
+    types:
+      - opened
+    branches:
+      - develop
+
+jobs:
+  merge_release_into_develop:
+    name: Merge release into develop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # only merge pull requests that begin with 'release/' or 'hotfix/'
+    if: |
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'hotfix/')
+
+    steps:
+      - name: Test action 'Merge release into develop'
+        uses: ./merge-release-into-develop/
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          release-branch: ${{ github.head_ref }}
+          develop-branch: develop
